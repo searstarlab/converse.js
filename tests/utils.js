@@ -62,7 +62,7 @@
     };
 
     utils.openControlBox = function () {
-        var toggle = document.querySelector(".toggle-controlbox");
+        const toggle = document.querySelector(".toggle-controlbox");
         if (!u.isVisible(document.querySelector("#controlbox"))) {
             if (!u.isVisible(toggle)) {
                 u.removeClass('hidden', toggle);
@@ -92,15 +92,19 @@
         return views;
     };
 
-    utils.openChatBoxFor = function (_converse, jid) {
+    utils.openChatBoxFor = async function (_converse, jid) {
+        await _converse.api.waitUntil('rosterContactsFetched');
         _converse.roster.get(jid).trigger("open");
         return utils.waitUntil(() => _converse.chatboxviews.get(jid), 1000);
     };
 
     utils.openChatRoomViaModal = async function (_converse, jid, nick='') {
         // Opens a new chatroom
-        utils.openControlBox(_converse);
-        const roomspanel = _converse.chatboxviews.get('controlbox').roomspanel;
+        const model = await _converse.api.chats.open('controlbox');
+        await utils.waitUntil(() => model.get('connected'));
+        utils.openControlBox();
+        const view = await _converse.chatboxviews.get('controlbox');
+        const roomspanel = view.roomspanel;
         roomspanel.el.querySelector('.show-add-muc-modal').click();
         utils.closeControlBox(_converse);
         const modal = roomspanel.add_room_modal;
@@ -116,87 +120,80 @@
         return _converse.api.rooms.open(`${room}@${server}`);
     };
 
-    utils.openAndEnterChatRoom = function (_converse, room, server, nick) {
-        let view;
+    utils.openAndEnterChatRoom = async function (_converse, room, server, nick) {
         const room_jid = `${room}@${server}`.toLowerCase();
         const stanzas = _converse.connection.IQ_stanzas;
+        await _converse.api.rooms.open(room_jid);
+        const view = await _converse.api.roomviews.get(room_jid);
+        let stanza = await utils.waitUntil(() => _.get(_.filter(
+            stanzas,
+            iq => iq.nodeTree.querySelector(
+                `iq[to="${room_jid}"] query[xmlns="http://jabber.org/protocol/disco#info"]`
+            )).pop(), 'nodeTree'));
 
-        return _converse.api.rooms.open(room_jid).then(() => {
-            view = _converse.chatboxviews.get(room_jid);
-            return utils.waitUntil(() => _.get(_.filter(
+        const features_stanza = $iq({
+            'from': room_jid,
+            'id': stanza.getAttribute('id'),
+            'to': 'dummy@localhost/desktop',
+            'type': 'result'
+        }).c('query', { 'xmlns': 'http://jabber.org/protocol/disco#info'})
+            .c('identity', {
+                'category': 'conference',
+                'name': room[0].toUpperCase() + room.slice(1),
+                'type': 'text'
+            }).up()
+            .c('feature', {'var': 'http://jabber.org/protocol/muc'}).up()
+            .c('feature', {'var': 'jabber:iq:register'}).up()
+            .c('feature', {'var': 'muc_passwordprotected'}).up()
+            .c('feature', {'var': 'muc_hidden'}).up()
+            .c('feature', {'var': 'muc_temporary'}).up()
+            .c('feature', {'var': 'muc_open'}).up()
+            .c('feature', {'var': 'muc_unmoderated'}).up()
+            .c('feature', {'var': 'muc_nonanonymous'})
+            .c('x', { 'xmlns':'jabber:x:data', 'type':'result'})
+                .c('field', {'var':'FORM_TYPE', 'type':'hidden'})
+                    .c('value').t('http://jabber.org/protocol/muc#roominfo').up().up()
+                .c('field', {'type':'text-single', 'var':'muc#roominfo_description', 'label':'Description'})
+                    .c('value').t('This is the description').up().up()
+                .c('field', {'type':'text-single', 'var':'muc#roominfo_occupants', 'label':'Number of occupants'})
+                    .c('value').t(0);
+        _converse.connection._dataRecv(utils.createRequest(features_stanza));
+
+        const iq = await utils.waitUntil(() => _.filter(
                 stanzas,
-                iq => iq.nodeTree.querySelector(
-                    `iq[to="${room_jid}"] query[xmlns="http://jabber.org/protocol/disco#info"]`
-                )).pop(), 'nodeTree'));
-        }).then(stanza => {
-            const features_stanza = $iq({
-                'from': room_jid,
-                'id': stanza.getAttribute('id'),
-                'to': 'dummy@localhost/desktop',
-                'type': 'result'
-            }).c('query', { 'xmlns': 'http://jabber.org/protocol/disco#info'})
-                .c('identity', {
-                    'category': 'conference',
-                    'name': room[0].toUpperCase() + room.slice(1),
-                    'type': 'text'
-                }).up()
-                .c('feature', {'var': 'http://jabber.org/protocol/muc'}).up()
-                .c('feature', {'var': 'jabber:iq:register'}).up()
-                .c('feature', {'var': 'muc_passwordprotected'}).up()
-                .c('feature', {'var': 'muc_hidden'}).up()
-                .c('feature', {'var': 'muc_temporary'}).up()
-                .c('feature', {'var': 'muc_open'}).up()
-                .c('feature', {'var': 'muc_unmoderated'}).up()
-                .c('feature', {'var': 'muc_nonanonymous'})
-                .c('x', { 'xmlns':'jabber:x:data', 'type':'result'})
-                    .c('field', {'var':'FORM_TYPE', 'type':'hidden'})
-                        .c('value').t('http://jabber.org/protocol/muc#roominfo').up().up()
-                    .c('field', {'type':'text-single', 'var':'muc#roominfo_description', 'label':'Description'})
-                        .c('value').t('This is the description').up().up()
-                    .c('field', {'type':'text-single', 'var':'muc#roominfo_occupants', 'label':'Number of occupants'})
-                        .c('value').t(0);
-            _converse.connection._dataRecv(utils.createRequest(features_stanza));
-            return utils.waitUntil(() => _.filter(
-                    stanzas,
-                    s => sizzle(`iq[to="${room_jid}"] query[node="x-roomuser-item"]`, s.nodeTree).length
-                ).pop()
-            );
-        }).then(iq => {
-            // We remove the stanza, otherwise we might get stale stanzas returned in our filter above.
-            stanzas.splice(stanzas.indexOf(iq), 1)
+                s => sizzle(`iq[to="${room_jid}"] query[node="x-roomuser-item"]`, s.nodeTree).length
+            ).pop());
 
-            // The XMPP server returns the reserved nick for this user.
-            const IQ_id = iq.nodeTree.getAttribute('id');
-            const stanza = $iq({
-                'type': 'result',
-                'id': IQ_id,
-                'from': view.model.get('jid'),
-                'to': _converse.connection.jid
-            }).c('query', {'xmlns': 'http://jabber.org/protocol/disco#info', 'node': 'x-roomuser-item'})
-                .c('identity', {'category': 'conference', 'name': nick, 'type': 'text'});
-            _converse.connection._dataRecv(utils.createRequest(stanza));
-            return utils.waitUntil(() => view.model.get('nick'));
-        }).then(() => {
-            // The user has just entered the room (because join was called)
-            // and receives their own presence from the server.
-            // See example 24: http://xmpp.org/extensions/xep-0045.html#enter-pres
-            var presence = $pres({
-                    to: _converse.connection.jid,
-                    from: `${room_jid}/${nick}`,
-                    id: u.getUniqueId()
-            }).c('x').attrs({xmlns:'http://jabber.org/protocol/muc#user'})
-                .c('item').attrs({
-                    affiliation: 'owner',
-                    jid: _converse.bare_jid,
-                    role: 'moderator'
-                }).up()
-                .c('status').attrs({code:'110'});
-            _converse.connection._dataRecv(utils.createRequest(presence));
-            return utils.waitUntil(() => (view.model.get('connection_status') === converse.ROOMSTATUS.ENTERED));
-        }).catch(e => {
-            console.error(e);
-            throw e;
-        });
+        // We remove the stanza, otherwise we might get stale stanzas returned in our filter above.
+        stanzas.splice(stanzas.indexOf(iq), 1)
+
+        // The XMPP server returns the reserved nick for this user.
+        const IQ_id = iq.nodeTree.getAttribute('id');
+        stanza = $iq({
+            'type': 'result',
+            'id': IQ_id,
+            'from': view.model.get('jid'),
+            'to': _converse.connection.jid
+        }).c('query', {'xmlns': 'http://jabber.org/protocol/disco#info', 'node': 'x-roomuser-item'})
+            .c('identity', {'category': 'conference', 'name': nick, 'type': 'text'});
+        _converse.connection._dataRecv(utils.createRequest(stanza));
+        await utils.waitUntil(() => view.model.get('nick'));
+        // The user has just entered the room (because join was called)
+        // and receives their own presence from the server.
+        // See example 24: http://xmpp.org/extensions/xep-0045.html#enter-pres
+        var presence = $pres({
+                to: _converse.connection.jid,
+                from: `${room_jid}/${nick}`,
+                id: u.getUniqueId()
+        }).c('x').attrs({xmlns:'http://jabber.org/protocol/muc#user'})
+            .c('item').attrs({
+                affiliation: 'owner',
+                jid: _converse.bare_jid,
+                role: 'moderator'
+            }).up()
+            .c('status').attrs({code:'110'});
+        _converse.connection._dataRecv(utils.createRequest(presence));
+        return utils.waitUntil(() => (view.model.get('connection_status') === converse.ROOMSTATUS.ENTERED));
     };
 
     utils.clearBrowserStorage = function () {
@@ -253,9 +250,9 @@
             requesting = false;
             ask = null;
         } else if (type === 'all') {
-            this.createContacts(_converse, 'current')
-                .createContacts(_converse, 'requesting')
-                .createContacts(_converse, 'pending');
+            await this.createContacts(_converse, 'current');
+            await this.createContacts(_converse, 'requesting')
+            await this.createContacts(_converse, 'pending');
             return this;
         } else {
             throw Error("Need to specify the type of contact to create");
