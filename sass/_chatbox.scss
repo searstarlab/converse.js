@@ -578,10 +578,11 @@
 
 #conversejs.converse-fullscreen  {
     .flyout {
+        height: 100%;
         border-radius: 0;
         border-top: 0.8em solid var(--chat-head-color);
         border: var(--flyout-padding) solid var(--chat-head-color);
-        bottom: 0;
+        bottom: auto;
     }
     .chatbox-btn {
         font-size: var(--fullpage-chatbox-button-size);
@@ -610,6 +611,10 @@
         height: var(--fullpage-emoji-picker-height);
     }
 
+    .converse-chatboxes {
+        position: relative;
+    }
+
     .chatbox {
         width: 100%;
         height: 100%;
@@ -629,8 +634,6 @@
         .box-flyout {
             background-color: var(--chat-head-color);
             box-shadow: none;
-            height: var(--fullpage-chat-height);
-            min-height: calc(var(--fullpage-chat-height) / 2);
             width: var(--fullpage-chat-width);
             overflow: hidden;
         }

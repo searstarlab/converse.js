@@ -127,7 +127,10 @@ body.reset {
 
     &.converse-fullscreen,
     &.converse-mobile {
+        height: 100;
+        position: relative;
         .converse-chatboxes {
+            height: 100%;
             width: 100vw;
             left: -15px; // Hack due to padding added by bootstrap
         }
