@@ -106,6 +106,9 @@ converse.plugins.add('converse-chatboxviews', {
             initialize () {
                 this.model.on("destroy", this.removeChat, this);
                 this.el.classList.add(`converse-${_converse.view_mode}`);
+                if (_converse.singleton) {
+                    this.el.classList.add(`converse-singleton`);
+                }
                 this.render();
             },
 
