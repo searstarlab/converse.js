@@ -74,7 +74,7 @@ converse.plugins.add('converse-controlbox', {
     dependencies: ["converse-modal", "converse-chatboxes", "converse-rosterview", "converse-chatview"],
 
     enabled (_converse) {
-        return _converse.view_mode !== 'embedded';
+        return !_converse.singleton;
     },
 
     overrides: {
