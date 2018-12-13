@@ -56530,6 +56530,28 @@ _converse_headless_converse_core__WEBPACK_IMPORTED_MODULE_0__["default"].plugins
         });
       }
 
+    },
+    ChatRoomView: {
+      events: {
+        'click .toggle-omemo': 'toggleOMEMO'
+      },
+
+      initialize() {
+        this.__super__.initialize.apply(this, arguments);
+
+        this.model.on('change:omemo_active', this.renderOMEMOToolbarButton, this);
+        this.model.on('change:omemo_supported', this.onOMEMOSupportedDetermined, this);
+        this.checkOMEMOSupported();
+      },
+
+      async checkOMEMOSupported() {
+        const _converse = this.__super__._converse;
+        const promises = this.model.occupants.map(o => _converse.contactHasOMEMOSupport(o.get('jid')));
+        await Promise.all(promises);
+        const supported = await promises.reduce((a, c) => a && c, true);
+        this.model.set('omemo_supported', supported);
+      }
+
     }
   },
 
@@ -56537,7 +56559,8 @@ _converse_headless_converse_core__WEBPACK_IMPORTED_MODULE_0__["default"].plugins
     /* The initialize function gets called as soon as the plugin is
      * loaded by Converse.js's plugin machinery.
      */
-    const _converse = this._converse;
+    const _converse = this._converse,
+          __ = _converse.__;
 
     _converse.api.promises.add(['OMEMOInitialized']);
 
@@ -57177,6 +57200,31 @@ _converse_headless_converse_core__WEBPACK_IMPORTED_MODULE_0__["default"].plugins
       _converse.devicelists.browserStorage = new Backbone.BrowserStorage[storage](id);
       fetchOwnDevices().then(() => restoreOMEMOSession()).then(() => _converse.omemo_store.publishBundle()).then(() => _converse.emit('OMEMOInitialized')).catch(_.partial(_converse.log, _, Strophe.LogLevel.ERROR));
     }
+
+    async function onOccupantAdded(chatroom, occupant) {
+      if (occupant.isSelf() || !chatroom.get('nonanonymous')) {
+        return;
+      }
+
+      const supported = await _converse.contactHasOMEMOSupport(occupant.get('jid'));
+
+      if (!supported && chatroom.get('omemo_active')) {
+        chatroom.messages.create({
+          'message': __(`${occupant.get('nick')} doesn't appear to have a client that supports OMEMO. ` + `Encrypted chat will not be possible in this grouchat.`),
+          'type': 'error'
+        });
+        chatroom.save({
+          'omemo_active': false,
+          'omemo_supported': false
+        });
+      }
+    }
+
+    _converse.api.waitUntil('chatBoxesInitialized').then(() => _converse.chatboxes.on('add', chatbox => {
+      if (chatbox.get('type') === _converse.CHATROOMS_TYPE) {
+        chatbox.occupants.on('add', o => onOccupantAdded(chatbox, o));
+      }
+    }));
 
     _converse.api.listen.on('afterTearDown', () => {
       if (_converse.devicelists) {

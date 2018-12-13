@@ -1,12 +1,8 @@
 (function (root, factory) {
     define(["jasmine", "mock", "test-utils"], factory);
 } (this, function (jasmine, mock, test_utils) {
-    var Strophe = converse.env.Strophe;
-    var b64_sha1 = converse.env.b64_sha1;
-    var $iq = converse.env.$iq;
-    var $msg = converse.env.$msg;
-    var _ = converse.env._;
-    var u = converse.env.utils;
+    const { $iq, $pres, $msg, _, Strophe } = converse.env;
+    const u = converse.env.utils;
 
 
     function deviceListFetched (_converse, jid) {
@@ -226,6 +222,48 @@
             expect(view.model.messages.length).toBe(3);
             expect(view.el.querySelectorAll('.chat-msg__body')[2].textContent.trim())
                 .toBe('Another received encrypted message without fallback');
+            done();
+        }));
+
+        xit("enables encrypted groupchat messages to be sent and received",
+            mock.initConverseWithPromises(
+                null, ['rosterGroupsFetched', 'chatBoxesFetched'], {'view_mode': 'fullscreen'},
+                async function (done, _converse) {
+
+            /* MEMO encryption works only in members only conferences
+             * that are non-anonymous.
+             *
+             * You either need an open access-model for PEP nodes, or you need
+             * to have a presence subscription with every member of the
+             * conference.
+             */
+            const features = [
+                'http://jabber.org/protocol/muc',
+                'jabber:iq:register',
+                'muc_passwordprotected',
+                'muc_hidden',
+                'muc_temporary',
+                'muc_membersonly',
+                'muc_unmoderated',
+                'muc_nonanonymous'
+            ];
+            await test_utils.openAndEnterChatRoom(_converse, 'lounge', 'localhost', 'dummy');
+            const view = _converse.chatboxviews.get('lounge@localhost');
+            await test_utils.waitUntil(() => initializedOMEMO(_converse));
+
+            const stanza = $pres({
+                    to: 'dummy@localhost/resource',
+                    from: 'lounge@localhost/newguy'
+                })
+                .c('x', {xmlns: Strophe.NS.MUC_USER})
+                .c('item', {
+                    'affiliation': 'none',
+                    'jid': 'newguy@localhost/_converse.js-290929789',
+                    'role': 'participant'
+                }).tree();
+            _converse.connection._dataRecv(test_utils.createRequest(stanza));
+
+            const iq_stanza = await test_utils.waitUntil(() => deviceListFetched(_converse, 'lounge@localhost/newguy'));
             done();
         }));
 
